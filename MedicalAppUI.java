@@ -2,6 +2,7 @@ import javax.swing.*;
 import javax.swing.table.*;
 import javax.swing.border.*;
 import java.awt.*;
+import java.awt.event.*;
 import java.awt.geom.*;
 import java.sql.*;
 
@@ -12,18 +13,21 @@ public class MedicalAppUI extends JFrame {
     // Patients
     private JTable patientTable;
     private DefaultTableModel patientModel;
+    private TableRowSorter<DefaultTableModel> patientSorter;
     private JTextField tfId, tfNom, tfPrenom, tfTel;
     private JButton btnDelete;
 
     // Doctors
     private JTable doctorTable;
     private DefaultTableModel doctorModel;
+    private TableRowSorter<DefaultTableModel> doctorSorter;
     private JTextField tfDoctorId, tfDoctorNom, tfDoctorPrenom, tfDoctorSpec, tfDoctorTel;
     private JButton btnDeleteDoctor;
 
     // Appointments
     private JTable rdvTable;
     private DefaultTableModel rdvModel;
+    private TableRowSorter<DefaultTableModel> rdvSorter;
     private JTextField tfRdvId, tfRdvPatient, tfRdvMedecin, tfRdvDate, tfRdvHeure, tfRdvStatut;
     private JButton btnDeleteRdv;
 
@@ -53,19 +57,15 @@ public class MedicalAppUI extends JFrame {
 
         add(buildTopBar(), BorderLayout.NORTH);
 
-        // ── Simple styled JTabbedPane (no custom UI override) ─────────────────
         JTabbedPane tabs = new JTabbedPane();
         tabs.setBackground(BG_CARD);
         tabs.setForeground(TEXT_MAIN);
         tabs.setFont(new Font("Segoe UI", Font.BOLD, 14));
-
-        // Add tabs with plain text (no emoji to avoid squares)
         tabs.addTab("[ Patients ]",     buildPatientsPanel());
         tabs.addTab("[ Doctors ]",      buildDoctorsPanel());
         tabs.addTab("[ Appointments ]", buildAppointmentsPanel());
 
-        // Color selected tab
-        tabs.setBackgroundAt(0, new Color(0x2F80ED));
+        tabs.setBackgroundAt(0, ACCENT_BLUE);
         tabs.setForegroundAt(0, Color.WHITE);
         tabs.setBackgroundAt(1, BG_CARD);
         tabs.setForegroundAt(1, TEXT_MAIN);
@@ -105,15 +105,19 @@ public class MedicalAppUI extends JFrame {
         appName.setForeground(Color.WHITE);
         bar.add(appName, BorderLayout.WEST);
 
+        // Right side: role badge + logout button
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        rightPanel.setOpaque(false);
+
         String roleText; Color roleColor;
         switch (role) {
-            case "owner":     roleText = "OWNER - Full Access";       roleColor = ACCENT_PURPLE; break;
-            case "doctor":    roleText = "DOCTOR - View Only";        roleColor = ACCENT_BLUE;   break;
-            default:          roleText = "ASSISTANT - Limited Access";roleColor = ACCENT_ORANGE; break;
+            case "owner":     roleText = "OWNER - Full Access";        roleColor = ACCENT_PURPLE; break;
+            case "doctor":    roleText = "DOCTOR - View Only";         roleColor = ACCENT_BLUE;   break;
+            default:          roleText = "ASSISTANT - Limited Access"; roleColor = ACCENT_ORANGE; break;
         }
+
         JLabel badge = new JLabel("  " + roleText + "  ") {
-            Color bc;
-            { bc = roleColor; }
+            Color bc = roleColor;
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g;
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
@@ -129,8 +133,128 @@ public class MedicalAppUI extends JFrame {
         badge.setForeground(Color.WHITE);
         badge.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
         badge.setOpaque(false);
-        bar.add(badge, BorderLayout.EAST);
+
+        // Logout button
+        JButton btnLogout = new JButton("[ Logout ]") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isRollover() ? ACCENT_RED.brighter() : ACCENT_RED);
+                g2.fillRoundRect(0,0,getWidth(),getHeight(),10,10);
+                g2.setColor(Color.WHITE);
+                g2.setFont(new Font("Segoe UI",Font.BOLD,12));
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(),(getWidth()-fm.stringWidth(getText()))/2,
+                             (getHeight()+fm.getAscent()-fm.getDescent())/2);
+            }
+        };
+        btnLogout.setPreferredSize(new Dimension(100, 35));
+        btnLogout.setContentAreaFilled(false);
+        btnLogout.setBorderPainted(false);
+        btnLogout.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnLogout.setFocusPainted(false);
+        btnLogout.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                "Are you sure you want to logout?", "Logout", JOptionPane.YES_NO_OPTION);
+            if (confirm == JOptionPane.YES_OPTION) {
+                dispose();
+                new LoginPage();
+            }
+        });
+
+        rightPanel.add(badge);
+        rightPanel.add(btnLogout);
+        bar.add(rightPanel, BorderLayout.EAST);
         return bar;
+    }
+
+    // ── Search bar builder ────────────────────────────────────────────────────
+    private JPanel buildSearchBar(TableRowSorter<?> sorter, String placeholder) {
+        JPanel searchPanel = new JPanel(new BorderLayout(8, 0));
+        searchPanel.setBackground(BG_CARD);
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
+
+        // Search icon label
+        JLabel searchIcon = new JLabel("  Search: ");
+        searchIcon.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        searchIcon.setForeground(ACCENT_BLUE);
+        searchPanel.add(searchIcon, BorderLayout.WEST);
+
+        // Search field
+        JTextField searchField = new JTextField();
+        searchField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        searchField.setBackground(BG_FIELD);
+        searchField.setForeground(TEXT_MAIN);
+        searchField.setCaretColor(Color.WHITE);
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(ACCENT_BLUE, 1),
+            BorderFactory.createEmptyBorder(6, 12, 6, 12)
+        ));
+        searchField.setToolTipText(placeholder);
+
+        // Placeholder text effect
+        searchField.setText(placeholder);
+        searchField.setForeground(TEXT_DIM);
+        searchField.addFocusListener(new FocusAdapter() {
+            @Override public void focusGained(FocusEvent e) {
+                if (searchField.getText().equals(placeholder)) {
+                    searchField.setText("");
+                    searchField.setForeground(TEXT_MAIN);
+                }
+            }
+            @Override public void focusLost(FocusEvent e) {
+                if (searchField.getText().isEmpty()) {
+                    searchField.setText(placeholder);
+                    searchField.setForeground(TEXT_DIM);
+                }
+            }
+        });
+
+        // Real-time filter as user types
+        searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            void filter() {
+                String text = searchField.getText();
+                if (text.equals(placeholder) || text.isEmpty()) {
+                    sorter.setRowFilter(null); // Show all rows
+                } else {
+                    // Search across ALL columns
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + text));
+                }
+            }
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+        });
+
+        // Clear button
+        JButton clearBtn = new JButton("X") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isRollover() ? new Color(0x3A4A5A) : BG_FIELD);
+                g2.fillRoundRect(0,0,getWidth(),getHeight(),8,8);
+                g2.setColor(TEXT_DIM);
+                g2.setFont(new Font("Segoe UI",Font.BOLD,11));
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(),(getWidth()-fm.stringWidth(getText()))/2,
+                             (getHeight()+fm.getAscent()-fm.getDescent())/2);
+            }
+        };
+        clearBtn.setPreferredSize(new Dimension(40, 36));
+        clearBtn.setContentAreaFilled(false);
+        clearBtn.setBorderPainted(false);
+        clearBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        clearBtn.setFocusPainted(false);
+        clearBtn.setToolTipText("Clear search");
+        clearBtn.addActionListener(e -> {
+            searchField.setText(placeholder);
+            searchField.setForeground(TEXT_DIM);
+            sorter.setRowFilter(null);
+        });
+
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(clearBtn, BorderLayout.EAST);
+        return searchPanel;
     }
 
     // ── Style table ───────────────────────────────────────────────────────────
@@ -161,7 +285,6 @@ public class MedicalAppUI extends JFrame {
         ((DefaultTableCellRenderer)h.getDefaultRenderer()).setHorizontalAlignment(SwingConstants.LEFT);
     }
 
-    // ── Styled field ──────────────────────────────────────────────────────────
     private JTextField sf(String tip) {
         JTextField f = new JTextField();
         f.setToolTipText(tip);
@@ -175,7 +298,6 @@ public class MedicalAppUI extends JFrame {
         return f;
     }
 
-    // ── Styled label ──────────────────────────────────────────────────────────
     private JLabel sl(String t) {
         JLabel l = new JLabel(t);
         l.setForeground(TEXT_DIM);
@@ -183,7 +305,6 @@ public class MedicalAppUI extends JFrame {
         return l;
     }
 
-    // ── Colored button ────────────────────────────────────────────────────────
     private JButton cb(String text, Color color) {
         JButton b = new JButton(text) {
             @Override protected void paintComponent(Graphics g) {
@@ -216,12 +337,25 @@ public class MedicalAppUI extends JFrame {
         patientModel = new DefaultTableModel(new String[]{"ID","Last Name","First Name","Phone"},0){
             @Override public boolean isCellEditable(int r,int c){return false;}
         };
-        patientTable = new JTable(patientModel); styleTable(patientTable);
+        patientTable = new JTable(patientModel);
+        styleTable(patientTable);
+
+        // Attach sorter for search
+        patientSorter = new TableRowSorter<>(patientModel);
+        patientTable.setRowSorter(patientSorter);
+
         JScrollPane sp = new JScrollPane(patientTable);
         sp.getViewport().setBackground(BG_DARK);
-        sp.setBorder(BorderFactory.createEmptyBorder(10,10,0,10));
-        panel.add(sp, BorderLayout.CENTER);
+        sp.setBorder(BorderFactory.createEmptyBorder(0,10,0,10));
 
+        // Search bar + table together
+        JPanel tableArea = new JPanel(new BorderLayout());
+        tableArea.setBackground(BG_CARD);
+        tableArea.add(buildSearchBar(patientSorter, "Type to search patients..."), BorderLayout.NORTH);
+        tableArea.add(sp, BorderLayout.CENTER);
+        panel.add(tableArea, BorderLayout.CENTER);
+
+        // Form + buttons
         JPanel south = new JPanel(new BorderLayout(10,0));
         south.setBackground(BG_CARD);
         south.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
@@ -245,8 +379,13 @@ public class MedicalAppUI extends JFrame {
 
         patientTable.getSelectionModel().addListSelectionListener(e->{
             int r=patientTable.getSelectedRow();
-            if(r>=0){tfId.setText(patientModel.getValueAt(r,0).toString());tfNom.setText(patientModel.getValueAt(r,1).toString());
-                     tfPrenom.setText(patientModel.getValueAt(r,2).toString());tfTel.setText(patientModel.getValueAt(r,3).toString());}
+            if(r>=0){
+                int modelRow = patientTable.convertRowIndexToModel(r);
+                tfId.setText(patientModel.getValueAt(modelRow,0).toString());
+                tfNom.setText(patientModel.getValueAt(modelRow,1).toString());
+                tfPrenom.setText(patientModel.getValueAt(modelRow,2).toString());
+                tfTel.setText(patientModel.getValueAt(modelRow,3).toString());
+            }
         });
         loadPatients(); return panel;
     }
@@ -289,8 +428,17 @@ public class MedicalAppUI extends JFrame {
             @Override public boolean isCellEditable(int r,int c){return false;}
         };
         doctorTable=new JTable(doctorModel); styleTable(doctorTable);
+        doctorSorter = new TableRowSorter<>(doctorModel);
+        doctorTable.setRowSorter(doctorSorter);
+
         JScrollPane sp=new JScrollPane(doctorTable); sp.getViewport().setBackground(BG_DARK);
-        sp.setBorder(BorderFactory.createEmptyBorder(10,10,0,10)); panel.add(sp,BorderLayout.CENTER);
+        sp.setBorder(BorderFactory.createEmptyBorder(0,10,0,10));
+
+        JPanel tableArea = new JPanel(new BorderLayout());
+        tableArea.setBackground(BG_CARD);
+        tableArea.add(buildSearchBar(doctorSorter, "Type to search doctors..."), BorderLayout.NORTH);
+        tableArea.add(sp, BorderLayout.CENTER);
+        panel.add(tableArea, BorderLayout.CENTER);
 
         JPanel south=new JPanel(new BorderLayout(10,0)); south.setBackground(BG_CARD);
         south.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
@@ -311,9 +459,14 @@ public class MedicalAppUI extends JFrame {
 
         doctorTable.getSelectionModel().addListSelectionListener(e->{
             int r=doctorTable.getSelectedRow();
-            if(r>=0){tfDoctorId.setText(doctorModel.getValueAt(r,0).toString());tfDoctorNom.setText(doctorModel.getValueAt(r,1).toString());
-                     tfDoctorPrenom.setText(doctorModel.getValueAt(r,2).toString());tfDoctorSpec.setText(doctorModel.getValueAt(r,3).toString());
-                     tfDoctorTel.setText(doctorModel.getValueAt(r,4).toString());}
+            if(r>=0){
+                int modelRow = doctorTable.convertRowIndexToModel(r);
+                tfDoctorId.setText(doctorModel.getValueAt(modelRow,0).toString());
+                tfDoctorNom.setText(doctorModel.getValueAt(modelRow,1).toString());
+                tfDoctorPrenom.setText(doctorModel.getValueAt(modelRow,2).toString());
+                tfDoctorSpec.setText(doctorModel.getValueAt(modelRow,3).toString());
+                tfDoctorTel.setText(doctorModel.getValueAt(modelRow,4).toString());
+            }
         });
         loadDoctors(); return panel;
     }
@@ -358,8 +511,10 @@ public class MedicalAppUI extends JFrame {
             @Override public boolean isCellEditable(int r,int c){return false;}
         };
         rdvTable=new JTable(rdvModel); styleTable(rdvTable);
+        rdvSorter = new TableRowSorter<>(rdvModel);
+        rdvTable.setRowSorter(rdvSorter);
 
-        // Color-code the Status column
+        // Color-code status column
         rdvTable.getColumnModel().getColumn(5).setCellRenderer(new DefaultTableCellRenderer(){
             @Override public Component getTableCellRendererComponent(JTable t,Object val,boolean sel,boolean foc,int row,int col){
                 super.getTableCellRendererComponent(t,val,sel,foc,row,col);
@@ -377,7 +532,13 @@ public class MedicalAppUI extends JFrame {
         });
 
         JScrollPane sp=new JScrollPane(rdvTable); sp.getViewport().setBackground(BG_DARK);
-        sp.setBorder(BorderFactory.createEmptyBorder(10,10,0,10)); panel.add(sp,BorderLayout.CENTER);
+        sp.setBorder(BorderFactory.createEmptyBorder(0,10,0,10));
+
+        JPanel tableArea = new JPanel(new BorderLayout());
+        tableArea.setBackground(BG_CARD);
+        tableArea.add(buildSearchBar(rdvSorter, "Type to search appointments..."), BorderLayout.NORTH);
+        tableArea.add(sp, BorderLayout.CENTER);
+        panel.add(tableArea, BorderLayout.CENTER);
 
         JPanel south=new JPanel(new BorderLayout(10,0)); south.setBackground(BG_CARD);
         south.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
@@ -401,9 +562,15 @@ public class MedicalAppUI extends JFrame {
 
         rdvTable.getSelectionModel().addListSelectionListener(e->{
             int r=rdvTable.getSelectedRow();
-            if(r>=0){tfRdvId.setText(rdvModel.getValueAt(r,0).toString());tfRdvPatient.setText(rdvModel.getValueAt(r,1).toString());
-                     tfRdvMedecin.setText(rdvModel.getValueAt(r,2).toString());tfRdvDate.setText(rdvModel.getValueAt(r,3).toString());
-                     tfRdvHeure.setText(rdvModel.getValueAt(r,4).toString());tfRdvStatut.setText(rdvModel.getValueAt(r,5).toString());}
+            if(r>=0){
+                int modelRow = rdvTable.convertRowIndexToModel(r);
+                tfRdvId.setText(rdvModel.getValueAt(modelRow,0).toString());
+                tfRdvPatient.setText(rdvModel.getValueAt(modelRow,1).toString());
+                tfRdvMedecin.setText(rdvModel.getValueAt(modelRow,2).toString());
+                tfRdvDate.setText(rdvModel.getValueAt(modelRow,3).toString());
+                tfRdvHeure.setText(rdvModel.getValueAt(modelRow,4).toString());
+                tfRdvStatut.setText(rdvModel.getValueAt(modelRow,5).toString());
+            }
         });
         loadRdv(); return panel;
     }
