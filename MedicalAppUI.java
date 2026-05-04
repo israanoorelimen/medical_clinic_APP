@@ -279,7 +279,7 @@ public class MedicalAppUI extends JFrame {
         JTableHeader h = t.getTableHeader();
         h.setBackground(HEADER_BG);
         h.setForeground(ACCENT_BLUE);
-        h.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        h.setFont(new Font("Segoe UI", Font.BOLD, 14));
         h.setBorder(BorderFactory.createMatteBorder(0,0,2,0,ACCENT_BLUE));
         h.setReorderingAllowed(false);
         ((DefaultTableCellRenderer)h.getDefaultRenderer()).setHorizontalAlignment(SwingConstants.LEFT);
